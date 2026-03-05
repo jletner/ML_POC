@@ -1,0 +1,19 @@
+{
+  "name": "vector-budget-classifier",
+  "version": "1.0.0",
+  "description": "Vector embedding-based budget categorization",
+  "type": "module",
+  "scripts": {
+    "train": "npx tsx --env-file=.env train-embeddings.ts",
+    "serve": "npx tsx --env-file=.env vector-server.ts",
+    "start": "npm run train && npm run serve"
+  },
+  "dependencies": {
+    "openai": "^4.28.0",
+    "tsx": "^4.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.35",
+    "typescript": "^5.3.0"
+  }
+}
