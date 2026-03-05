@@ -17,6 +17,8 @@ interface CategoryEmbedding {
 let categoryEmbeddings: CategoryEmbedding[] = [];
 let merchantLookup: Record<string, string> = {};
 let userDefinedCategories: Set<string> = new Set(); // Track categories added via UI
+let merchantEmbeddingCache: Record<string, number[]> = {}; // Cache to avoid repeated API calls
+const CACHE_FILE = "./embeddings/merchant-embedding-cache.json";
 
 // Load embeddings
 function loadEmbeddings() {
@@ -26,6 +28,16 @@ function loadEmbeddings() {
   merchantLookup = JSON.parse(
     fs.readFileSync("./embeddings/merchant-lookup.json", "utf-8"),
   );
+
+  // Load merchant embedding cache
+  try {
+    merchantEmbeddingCache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
+    console.log(
+      `Loaded ${Object.keys(merchantEmbeddingCache).length} cached merchant embeddings`,
+    );
+  } catch {
+    merchantEmbeddingCache = {};
+  }
 
   // Load user-defined categories from corrections
   try {
@@ -66,13 +78,37 @@ function getAllCategories(): { category: string; confidence: number }[] {
   return [...embedded, ...userDefined];
 }
 
-// Get embedding from OpenAI
-async function getEmbedding(text: string): Promise<number[]> {
+// Get embedding from OpenAI (with caching)
+async function getEmbedding(
+  text: string,
+): Promise<{ embedding: number[]; cacheHit: boolean }> {
+  const cacheKey = text.toLowerCase().trim();
+
+  // Check cache first
+  if (merchantEmbeddingCache[cacheKey]) {
+    console.log(`Cache hit for: ${text}`);
+    return { embedding: merchantEmbeddingCache[cacheKey], cacheHit: true };
+  }
+
+  // Call OpenAI API
+  console.log(`Cache miss, calling OpenAI for: ${text}`);
   const response = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: text,
+    dimensions: 512,
   });
-  return response.data[0].embedding;
+  const embedding = response.data[0].embedding;
+
+  // Save to cache
+  merchantEmbeddingCache[cacheKey] = embedding;
+  saveMerchantCache();
+
+  return { embedding, cacheHit: false };
+}
+
+// Save merchant embedding cache to disk
+function saveMerchantCache() {
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(merchantEmbeddingCache, null, 2));
 }
 
 // Cosine similarity between two vectors
@@ -96,7 +132,7 @@ async function classify(merchant: string, amount: number) {
   const exactMatch = merchantLookup[merchant.toLowerCase()];
   if (exactMatch) {
     // Get embedding anyway to show alternatives
-    const embedding = await getEmbedding(merchant);
+    const { embedding, cacheHit } = await getEmbedding(merchant);
     const similarities = categoryEmbeddings.map((cat) => ({
       category: cat.category,
       confidence: (cosineSimilarity(embedding, cat.embedding) + 1) / 2, // Normalize to 0-1
@@ -113,12 +149,13 @@ async function classify(merchant: string, amount: number) {
       prediction: exactMatch,
       confidence: 1.0,
       matchType: "exact",
+      embeddingSource: cacheHit ? "cache" : "openai",
       alternatives: similarities,
     };
   }
 
   // Get embedding for merchant
-  const embedding = await getEmbedding(merchant);
+  const { embedding, cacheHit } = await getEmbedding(merchant);
 
   // Calculate similarity to each category
   const similarities: {
@@ -147,6 +184,7 @@ async function classify(merchant: string, amount: number) {
     prediction: best.category,
     confidence: best.confidence,
     matchType: "vector",
+    embeddingSource: cacheHit ? "cache" : "openai",
     topMatches: similarities.slice(0, 5),
     alternatives: similarities,
   };
@@ -286,6 +324,9 @@ const HTML_PAGE = `<!DOCTYPE html>
     .match-type { font-size: 12px; padding: 2px 8px; border-radius: 4px; margin-left: 10px; }
     .match-type.exact { background: #28a745; color: white; }
     .match-type.vector { background: #6f42c1; color: white; }
+    .embedding-source { font-size: 12px; padding: 2px 8px; border-radius: 4px; margin-left: 8px; }
+    .embedding-source.cache { background: #17a2b8; color: white; }
+    .embedding-source.openai { background: #fd7e14; color: white; }
     .alternatives { margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
     .alt-item { display: flex; justify-content: space-between; padding: 5px 0; color: #888; }
     select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 15px; font-size: 16px; }
@@ -330,6 +371,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     <div>
       <span class="prediction" id="prediction"></span>
       <span class="match-type" id="matchType"></span>
+      <span class="embedding-source" id="embeddingSource"></span>
     </div>
     <div class="confidence" id="confidence"></div>
     <div class="alternatives" id="alternatives"></div>
@@ -370,6 +412,10 @@ const HTML_PAGE = `<!DOCTYPE html>
       const matchType = document.getElementById("matchType");
       matchType.textContent = data.matchType;
       matchType.className = "match-type " + data.matchType;
+      
+      const embeddingSource = document.getElementById("embeddingSource");
+      embeddingSource.textContent = data.embeddingSource === "cache" ? "From Cache" : "From OpenAI";
+      embeddingSource.className = "embedding-source " + data.embeddingSource;
       
       document.getElementById("confidence").textContent = "Confidence: " + (data.confidence * 100).toFixed(1) + "%";
       

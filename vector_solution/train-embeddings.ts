@@ -42,6 +42,7 @@ async function getEmbedding(text: string): Promise<number[]> {
   const response = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: text,
+    dimensions: 512,
   });
   return response.data[0].embedding;
 }
@@ -51,6 +52,7 @@ async function getEmbeddings(texts: string[]): Promise<number[][]> {
   const response = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: texts,
+    dimensions: 512,
   });
   return response.data.map((d: { embedding: number[] }) => d.embedding);
 }
