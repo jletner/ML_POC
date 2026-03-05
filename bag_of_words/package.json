@@ -4,13 +4,9 @@
   "description": "Simple ML POC with Copilot MCP integration",
   "main": "index.js",
   "scripts": {
-    "train": "npx tsx train.ts",
-    "serve": "npx tsx server.ts",
-    "mcp": "npx tsx mcp-server.ts",
-    "start": "npm run train && npm run serve",
-    "train:budget": "npx tsx train-budget.ts",
-    "serve:budget": "npx tsx budget-server.ts",
-    "budget": "npm run train:budget && npm run serve:budget"
+    "train": "npx tsx train-budget.ts",
+    "serve": "npx tsx budget-server.ts",
+    "start": "npm run train && npm run serve"
   },
   "keywords": [],
   "author": "",

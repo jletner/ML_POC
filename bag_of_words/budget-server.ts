@@ -6,6 +6,12 @@ import { execSync } from "child_process";
 let model: tf.LayersModel | null = null;
 let vocab: Map<string, number> = new Map();
 let categories: string[] = [];
+let userDefinedCategories: Set<string> = new Set(); // Track categories added via UI
+
+// Get all categories including user-defined ones
+function getAllCategories(): string[] {
+  return [...categories, ...Array.from(userDefinedCategories)];
+}
 
 async function loadModel() {
   const modelJSON = JSON.parse(
@@ -53,8 +59,12 @@ function loadMerchantLookup(): Map<string, string> {
     );
     const lookup = new Map<string, string>();
     // Use most recent correction for each merchant
+    // Also populate userDefinedCategories with any new categories from corrections
     for (const c of corrections) {
       lookup.set(c.merchant.toLowerCase(), c.category);
+      if (!categories.includes(c.category)) {
+        userDefinedCategories.add(c.category);
+      }
     }
     return lookup;
   } catch {
@@ -79,13 +89,18 @@ async function classify(merchant: string, amount: number) {
       .map((cat, i) => ({ category: cat, confidence: probs[i] }))
       .sort((a, b) => b.confidence - a.confidence);
 
+    // Add user-defined categories with 0 confidence
+    const userDefined = Array.from(userDefinedCategories)
+      .filter((cat) => !categories.includes(cat))
+      .map((cat) => ({ category: cat, confidence: 0 }));
+
     return {
       merchant,
       amount,
       prediction: exactMatch,
       confidence: 1.0,
       matchType: "exact",
-      alternatives: allRanked,
+      alternatives: [...allRanked, ...userDefined],
     };
   }
 
@@ -100,12 +115,17 @@ async function classify(merchant: string, amount: number) {
     .map((cat, i) => ({ category: cat, confidence: probs[i] }))
     .sort((a, b) => b.confidence - a.confidence);
 
+  // Add user-defined categories with 0 confidence
+  const userDefined = Array.from(userDefinedCategories)
+    .filter((cat) => !categories.includes(cat))
+    .map((cat) => ({ category: cat, confidence: 0 }));
+
   return {
     merchant,
     amount,
     prediction: categories[maxIdx],
     confidence,
-    alternatives: allRanked,
+    alternatives: [...allRanked, ...userDefined],
   };
 }
 
@@ -126,6 +146,10 @@ function saveFeedback(merchant: string, amount: number, category: string) {
   );
   // Update lookup immediately so exact matches work before retrain
   merchantLookup.set(merchant.toLowerCase(), category);
+  // Add new category to userDefinedCategories so it appears in dropdown immediately
+  if (isNewCategory) {
+    userDefinedCategories.add(category);
+  }
   return {
     success: true,
     totalCorrections: corrections.length,
@@ -152,6 +176,7 @@ async function retrainModel(): Promise<{ success: boolean; output: string }> {
     });
     console.log("Retraining complete, reloading model and lookup...");
     await loadModel();
+    userDefinedCategories.clear(); // Clear since they're now in the model
     merchantLookup = loadMerchantLookup();
     return { success: true, output };
   } catch (err: any) {
@@ -196,6 +221,18 @@ const HTML_PAGE = `<!DOCTYPE html>
 </head>
 <body>
   <h1>Budget Classifier</h1>
+  
+  <div class="card" style="background: #e7f3ff; border-left: 4px solid #007bff;">
+    <h3 style="margin-top: 0; color: #0056b3;">How This Model Works</h3>
+    <p style="margin: 0; color: #333; line-height: 1.6;">
+      <strong>Bag of Words + Neural Network:</strong> This classifier converts merchant names into binary vectors 
+      where each position represents whether a specific word is present. A TensorFlow.js neural network then 
+      learns patterns from labeled training data to predict categories.<br><br>
+      <strong>Suggestions:</strong> The model outputs probability scores for each category based on word patterns it learned 
+      during training. Higher confidence = stronger word pattern match. Works well for exact or similar merchant names 
+      but may struggle with semantically similar merchants using different words (e.g., "Coffee House" vs "Espresso Bar").
+    </p>
+  </div>
   
   <div class="card">
     <form id="classifyForm">

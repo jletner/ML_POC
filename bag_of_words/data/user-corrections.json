@@ -184,5 +184,23 @@
     "amount": 50,
     "category": "Dog Food",
     "timestamp": "2026-03-05T18:32:24.873Z"
+  },
+  {
+    "merchant": "Bob's Bank",
+    "amount": 10,
+    "category": "Bank Fees",
+    "timestamp": "2026-03-05T19:37:11.653Z"
+  },
+  {
+    "merchant": "Fred's Bank",
+    "amount": 10,
+    "category": "Bank Fees",
+    "timestamp": "2026-03-05T19:39:34.772Z"
+  },
+  {
+    "merchant": "Jill's Bank",
+    "amount": 10,
+    "category": "Bank Fees",
+    "timestamp": "2026-03-05T19:44:33.905Z"
   }
 ]

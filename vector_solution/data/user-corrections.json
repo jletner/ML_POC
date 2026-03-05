@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "merchant": "Joe's Sandwhiches",
+    "amount": 15,
+    "category": "Food & Dining",
+    "timestamp": "2026-03-05T19:10:12.472Z"
+  },
+  {
+    "merchant": "Town and Country Bank",
+    "amount": 15,
+    "category": "Bank Fees",
+    "timestamp": "2026-03-05T19:10:47.160Z"
+  },
+  {
+    "merchant": "Town and Country Bank",
+    "amount": 15,
+    "category": "Bank Fees",
+    "timestamp": "2026-03-05T19:14:16.341Z"
+  }
+]

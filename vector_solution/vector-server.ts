@@ -16,6 +16,7 @@ interface CategoryEmbedding {
 
 let categoryEmbeddings: CategoryEmbedding[] = [];
 let merchantLookup: Record<string, string> = {};
+let userDefinedCategories: Set<string> = new Set(); // Track categories added via UI
 
 // Load embeddings
 function loadEmbeddings() {
@@ -25,10 +26,44 @@ function loadEmbeddings() {
   merchantLookup = JSON.parse(
     fs.readFileSync("./embeddings/merchant-lookup.json", "utf-8"),
   );
+
+  // Load user-defined categories from corrections
+  try {
+    const corrections = JSON.parse(
+      fs.readFileSync("./data/user-corrections.json", "utf-8"),
+    );
+    const embeddedCats = new Set(categoryEmbeddings.map((c) => c.category));
+    for (const c of corrections) {
+      if (!embeddedCats.has(c.category)) {
+        userDefinedCategories.add(c.category);
+      }
+    }
+  } catch {
+    // No corrections file yet
+  }
+
   console.log(`Loaded ${categoryEmbeddings.length} category embeddings`);
   console.log(
     `Loaded ${Object.keys(merchantLookup).length} merchant overrides`,
   );
+  if (userDefinedCategories.size > 0) {
+    console.log(
+      `User-defined categories (pending retrain): ${Array.from(userDefinedCategories).join(", ")}`,
+    );
+  }
+}
+
+// Get all categories including user-defined ones
+function getAllCategories(): { category: string; confidence: number }[] {
+  const embedded = categoryEmbeddings.map((c) => ({
+    category: c.category,
+    confidence: 0,
+  }));
+  const userDefined = Array.from(userDefinedCategories).map((cat) => ({
+    category: cat,
+    confidence: 0,
+  }));
+  return [...embedded, ...userDefined];
 }
 
 // Get embedding from OpenAI
@@ -66,6 +101,10 @@ async function classify(merchant: string, amount: number) {
       category: cat.category,
       confidence: (cosineSimilarity(embedding, cat.embedding) + 1) / 2, // Normalize to 0-1
     }));
+    // Add user-defined categories (no embedding yet, so 0 confidence)
+    for (const cat of userDefinedCategories) {
+      similarities.push({ category: cat, confidence: 0 });
+    }
     similarities.sort((a, b) => b.confidence - a.confidence);
 
     return {
@@ -82,11 +121,20 @@ async function classify(merchant: string, amount: number) {
   const embedding = await getEmbedding(merchant);
 
   // Calculate similarity to each category
-  const similarities = categoryEmbeddings.map((cat) => ({
+  const similarities: {
+    category: string;
+    confidence: number;
+    examples?: string[];
+  }[] = categoryEmbeddings.map((cat) => ({
     category: cat.category,
     confidence: (cosineSimilarity(embedding, cat.embedding) + 1) / 2, // Normalize to 0-1
     examples: cat.merchantExamples,
   }));
+
+  // Add user-defined categories (no embedding yet, so 0 confidence)
+  for (const cat of userDefinedCategories) {
+    similarities.push({ category: cat, confidence: 0 });
+  }
 
   // Sort by similarity
   similarities.sort((a, b) => b.confidence - a.confidence);
@@ -153,9 +201,16 @@ function saveFeedback(merchant: string, amount: number, category: string) {
     corrections = [];
   }
 
-  const isNewCategory = !categoryEmbeddings.some(
-    (c) => c.category === category,
-  );
+  const isNewCategory =
+    !categoryEmbeddings.some((c) => c.category === category) &&
+    !userDefinedCategories.has(category);
+
+  // Track new user-defined category immediately
+  if (isNewCategory) {
+    userDefinedCategories.add(category);
+    console.log(`Added new user-defined category: ${category}`);
+  }
+
   corrections.push({
     merchant,
     amount,
@@ -183,6 +238,7 @@ async function retrainModel(): Promise<{ success: boolean; output: string }> {
       timeout: 120000,
     });
     console.log("Retraining complete, reloading embeddings...");
+    userDefinedCategories.clear(); // Clear since they'll now have embeddings
     loadEmbeddings();
     return { success: true, output };
   } catch (err: unknown) {
@@ -241,6 +297,18 @@ const HTML_PAGE = `<!DOCTYPE html>
 </head>
 <body>
   <h1>Vector Budget Classifier <span class="badge">Embeddings</span></h1>
+  
+  <div class="card" style="background: #f3e8ff; border-left: 4px solid #6f42c1;">
+    <h3 style="margin-top: 0; color: #5a32a3;">How This Model Works</h3>
+    <p style="margin: 0; color: #333; line-height: 1.6;">
+      <strong>Semantic Embeddings:</strong> This classifier uses OpenAI's text-embedding-3-small model to convert 
+      merchant names into 1536-dimensional vectors that capture semantic meaning. Each category is represented 
+      by an average embedding of its training merchants.<br><br>
+      <strong>Suggestions:</strong> Predictions are based on cosine similarity between the merchant embedding and 
+      category embeddings. This approach understands meaning, not just words — so "JavaHut Espresso" matches 
+      "Coffee" even without the word "coffee" appearing in training. Higher confidence = closer semantic match.
+    </p>
+  </div>
   
   <div class="card">
     <form id="classifyForm">
