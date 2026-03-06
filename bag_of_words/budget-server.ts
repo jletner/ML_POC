@@ -202,9 +202,9 @@ async function classify(merchant: string, amount: number) {
         bypassedML: true,
       },
       vocabularyAnalysis: {
-        inputWords: words,
-        knownWords: knownWords,
-        unknownWords: unknownWords,
+        inputWords: words.map((w) => ({ word: w })),
+        knownWords: knownWords.map((w) => ({ word: w })),
+        unknownWords: unknownWords.map((w) => ({ word: w })),
         vocabularySize: vocab.size,
         coveragePercent:
           ((knownWords.length / words.length) * 100).toFixed(1) + "%",
@@ -264,9 +264,9 @@ async function classify(merchant: string, amount: number) {
       totalCategories: categories.length,
     },
     vocabularyAnalysis: {
-      inputWords: words,
-      knownWords: knownWords,
-      unknownWords: unknownWords,
+      inputWords: words.map((w) => ({ word: w })),
+      knownWords: knownWords.map((w) => ({ word: w })),
+      unknownWords: unknownWords.map((w) => ({ word: w })),
       vocabularySize: vocab.size,
       coveragePercent:
         ((knownWords.length / words.length) * 100).toFixed(1) + "%",
@@ -308,7 +308,9 @@ async function classify(merchant: string, amount: number) {
   console.log(
     `[BOW CLASSIFY] Decision: "${best.category}" (${(best.confidence * 100).toFixed(1)}%)`,
   );
-  console.log(`[BOW CLASSIFY] Reasoning: ${reasoning}`);
+  console.log(
+    `[BOW CLASSIFY] Reasoning: ${JSON.stringify(reasoning, null, 2)}`,
+  );
   console.log("=".repeat(60));
 
   return {
@@ -318,8 +320,11 @@ async function classify(merchant: string, amount: number) {
     confidence: best.confidence,
     matchType: "model",
     reasoning,
-    knownWords,
-    unknownWords: unknownWords.length > 0 ? unknownWords : undefined,
+    knownWords: knownWords.map((w) => ({ word: w })),
+    unknownWords:
+      unknownWords.length > 0
+        ? unknownWords.map((w) => ({ word: w }))
+        : undefined,
     alternatives: [...allRanked, ...userDefined],
   };
 }

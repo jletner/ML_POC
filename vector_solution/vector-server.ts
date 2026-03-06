@@ -361,7 +361,9 @@ async function classify(merchant: string, amount: number) {
   console.log(
     `[VECTOR CLASSIFY] Decision: "${best.category}" (${(best.confidence * 100).toFixed(1)}%)`,
   );
-  console.log(`[VECTOR CLASSIFY] Reasoning: ${reasoning}`);
+  console.log(
+    `[VECTOR CLASSIFY] Reasoning: ${JSON.stringify(reasoning, null, 2)}`,
+  );
   console.log("=".repeat(60));
 
   return {

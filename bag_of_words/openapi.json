@@ -41,6 +41,67 @@
                 "prediction": { "type": "string" },
                 "confidence": { "type": "number" },
                 "matchType": { "type": "string" },
+                "knownWords": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "word": { "type": "string" }
+                    }
+                  }
+                },
+                "unknownWords": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "word": { "type": "string" }
+                    }
+                  }
+                },
+                "reasoning": {
+                  "type": "object",
+                  "properties": {
+                    "summary": { "type": "string" },
+                    "matchType": { "type": "string" },
+                    "model": { "type": "string" },
+                    "vocabularyAnalysis": {
+                      "type": "object",
+                      "properties": {
+                        "inputWords": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "word": { "type": "string" }
+                            }
+                          }
+                        },
+                        "knownWords": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "word": { "type": "string" }
+                            }
+                          }
+                        },
+                        "unknownWords": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "word": { "type": "string" }
+                            }
+                          }
+                        },
+                        "vocabularySize": { "type": "integer" },
+                        "coveragePercent": { "type": "string" },
+                        "note": { "type": "string" }
+                      }
+                    }
+                  }
+                },
                 "alternatives": {
                   "type": "array",
                   "items": {
