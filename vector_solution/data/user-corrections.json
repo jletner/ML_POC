@@ -22,5 +22,11 @@
     "amount": 100,
     "category": "Pets",
     "timestamp": "2026-03-06T01:55:48.292Z"
+  },
+  {
+    "merchant": "Kitties and Hounds",
+    "amount": 5,
+    "category": "Pets",
+    "timestamp": "2026-03-06T16:30:02.194Z"
   }
 ]
