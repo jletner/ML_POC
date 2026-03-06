@@ -1,0 +1,19 @@
+{
+  "name": "ml-poc-workspace",
+  "version": "1.0.0",
+  "description": "ML POC workspace - Bag of Words and Vector Embeddings classifiers",
+  "scripts": {
+    "train:bow": "cd bag_of_words && npm run train",
+    "train:vector": "cd vector_solution && npm run train",
+    "train:all": "npm run train:bow && npm run train:vector",
+    "serve:bow": "cd bag_of_words && npm run serve",
+    "serve:vector": "cd vector_solution && npm run serve",
+    "start:bow": "cd bag_of_words && npm run start",
+    "start:vector": "cd vector_solution && npm run start",
+    "start:all": "concurrently \"npm run start:bow\" \"npm run start:vector\"",
+    "serve:all": "concurrently \"npm run serve:bow\" \"npm run serve:vector\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
