@@ -82,9 +82,36 @@ let merchantLookup = loadMerchantLookup();
 async function classify(merchant: string, amount: number) {
   if (!model) throw new Error("Model not loaded");
 
+  // Extract words and identify which are in vocabulary
+  const words = merchant.toLowerCase().split(/\s+/);
+  const knownWords = words.filter((w) => vocab.has(w) && vocab.get(w) !== 0);
+  const unknownWords = words.filter((w) => !vocab.has(w) || vocab.get(w) === 0);
+
+  console.log("\n" + "=".repeat(60));
+  console.log(`[BOW CLASSIFY] Input: "${merchant}" $${amount}`);
+  console.log(`[BOW CLASSIFY] Words parsed: [${words.join(", ")}]`);
+  console.log(
+    `[BOW CLASSIFY] Known vocabulary words: [${knownWords.join(", ")}]`,
+  );
+  if (unknownWords.length > 0) {
+    console.log(
+      `[BOW CLASSIFY] Unknown words (mapped to <UNK>): [${unknownWords.join(", ")}]`,
+    );
+  }
+  console.log(
+    `[BOW CLASSIFY] Normalized amount: ${normalizeAmount(amount).toFixed(4)} (from $${amount})`,
+  );
+
   // First check exact merchant match from corrections
   const exactMatch = merchantLookup.get(merchant.toLowerCase());
   if (exactMatch) {
+    console.log(
+      `[BOW CLASSIFY] EXACT MATCH found in corrections → "${exactMatch}"`,
+    );
+    console.log(
+      `[BOW CLASSIFY] Reason: User previously corrected this merchant`,
+    );
+
     // Return exact match with high confidence, but still show ML alternatives
     const vec = [...merchantToVector(merchant), normalizeAmount(amount)];
     const pred = model.predict(tf.tensor2d([vec])) as tf.Tensor;
@@ -93,6 +120,11 @@ async function classify(merchant: string, amount: number) {
     const allRanked = categories
       .map((cat, i) => ({ category: cat, confidence: probs[i] }))
       .sort((a, b) => b.confidence - a.confidence);
+
+    console.log(
+      `[BOW CLASSIFY] (ML would have predicted: "${allRanked[0].category}" at ${(allRanked[0].confidence * 100).toFixed(1)}%)`,
+    );
+    console.log("=".repeat(60));
 
     // Add user-defined categories with 0 confidence
     const userDefined = Array.from(userDefinedCategories)
@@ -105,6 +137,7 @@ async function classify(merchant: string, amount: number) {
       prediction: exactMatch,
       confidence: 1.0,
       matchType: "exact",
+      reasoning: `Exact match from user correction. Known words: [${knownWords.join(", ")}]`,
       alternatives: [...allRanked, ...userDefined],
     };
   }
@@ -125,12 +158,37 @@ async function classify(merchant: string, amount: number) {
 
   // Use the top ranked item for consistency (same source for confidence)
   const best = allRanked[0];
+  const top3 = allRanked.slice(0, 3);
+
+  // Build reasoning explanation
+  let reasoning = "";
+  if (knownWords.length === 0) {
+    reasoning = `No vocabulary matches found. Model used amount ($${amount}) and general patterns.`;
+  } else {
+    reasoning = `Word patterns [${knownWords.join(", ")}] strongly associated with "${best.category}" in training data.`;
+  }
+
+  console.log(`[BOW CLASSIFY] Neural network output probabilities:`);
+  top3.forEach((cat, i) => {
+    console.log(
+      `[BOW CLASSIFY]   ${i + 1}. ${cat.category}: ${(cat.confidence * 100).toFixed(2)}%`,
+    );
+  });
+  console.log(
+    `[BOW CLASSIFY] Decision: "${best.category}" (${(best.confidence * 100).toFixed(1)}%)`,
+  );
+  console.log(`[BOW CLASSIFY] Reasoning: ${reasoning}`);
+  console.log("=".repeat(60));
 
   return {
     merchant,
     amount,
     prediction: best.category,
     confidence: best.confidence,
+    matchType: "model",
+    reasoning,
+    knownWords,
+    unknownWords: unknownWords.length > 0 ? unknownWords : undefined,
     alternatives: [...allRanked, ...userDefined],
   };
 }

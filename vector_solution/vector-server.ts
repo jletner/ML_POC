@@ -108,7 +108,7 @@ async function getEmbedding(
   const response = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: text,
-    dimensions: 512,
+    dimensions: 1536,
   });
   const embedding = response.data[0].embedding;
 
@@ -141,11 +141,25 @@ function cosineSimilarity(a: number[], b: number[]): number {
 
 // Classify a transaction using vector similarity
 async function classify(merchant: string, amount: number) {
+  console.log("\n" + "=".repeat(60));
+  console.log(`[VECTOR CLASSIFY] Input: "${merchant}" $${amount}`);
+
   // First check exact merchant match from corrections
   const exactMatch = merchantLookup[merchant.toLowerCase()];
   if (exactMatch) {
+    console.log(
+      `[VECTOR CLASSIFY] EXACT MATCH found in corrections → "${exactMatch}"`,
+    );
+    console.log(
+      `[VECTOR CLASSIFY] Reason: User previously corrected this merchant`,
+    );
+
     // Get embedding anyway to show alternatives
     const { embedding, cacheHit } = await getEmbedding(merchant);
+    console.log(
+      `[VECTOR CLASSIFY] Embedding source: ${cacheHit ? "CACHE" : "OpenAI API"}`,
+    );
+
     const similarities = categoryEmbeddings.map((cat) => ({
       category: cat.category,
       confidence: (cosineSimilarity(embedding, cat.embedding) + 1) / 2, // Normalize to 0-1
@@ -156,6 +170,11 @@ async function classify(merchant: string, amount: number) {
     }
     similarities.sort((a, b) => b.confidence - a.confidence);
 
+    console.log(
+      `[VECTOR CLASSIFY] (Vector similarity would have predicted: "${similarities[0].category}" at ${(similarities[0].confidence * 100).toFixed(1)}%)`,
+    );
+    console.log("=".repeat(60));
+
     return {
       merchant,
       amount,
@@ -163,23 +182,64 @@ async function classify(merchant: string, amount: number) {
       confidence: 1.0,
       matchType: "exact",
       embeddingSource: cacheHit ? "cache" : "openai",
+      reasoning: "Exact match from user correction.",
       alternatives: similarities,
     };
   }
 
   // Get embedding for merchant
   const { embedding, cacheHit } = await getEmbedding(merchant);
+  console.log(
+    `[VECTOR CLASSIFY] Embedding source: ${cacheHit ? "CACHE (instant)" : "OpenAI API (network call)"}`,
+  );
+  console.log(`[VECTOR CLASSIFY] Embedding dimensions: ${embedding.length}`);
+
+  // Show merchant embedding vector (beginning, middle, end for a complete picture)
+  const sampleDims = 8;
+  const startSlice = embedding.slice(0, sampleDims).map((v) => v.toFixed(4));
+  const midStart =
+    Math.floor(embedding.length / 2) - Math.floor(sampleDims / 2);
+  const midSlice = embedding
+    .slice(midStart, midStart + sampleDims)
+    .map((v) => v.toFixed(4));
+  const endSlice = embedding.slice(-sampleDims).map((v) => v.toFixed(4));
+
+  console.log(`[VECTOR CLASSIFY] Merchant embedding for "${merchant}":`);
+  console.log(
+    `[VECTOR CLASSIFY]   Start [0-${sampleDims - 1}]:    [${startSlice.join(", ")}]`,
+  );
+  console.log(
+    `[VECTOR CLASSIFY]   Middle [${midStart}-${midStart + sampleDims - 1}]: [${midSlice.join(", ")}]`,
+  );
+  console.log(
+    `[VECTOR CLASSIFY]   End [${embedding.length - sampleDims}-${embedding.length - 1}]:  [${endSlice.join(", ")}]`,
+  );
+
+  // Calculate stats
+  const min = Math.min(...embedding).toFixed(4);
+  const max = Math.max(...embedding).toFixed(4);
+  const avg = (embedding.reduce((a, b) => a + b, 0) / embedding.length).toFixed(
+    4,
+  );
+  console.log(`[VECTOR CLASSIFY]   Stats: min=${min}, max=${max}, avg=${avg}`);
 
   // Calculate similarity to each category
   const similarities: {
     category: string;
     confidence: number;
+    rawSimilarity?: number;
     examples?: string[];
-  }[] = categoryEmbeddings.map((cat) => ({
-    category: cat.category,
-    confidence: (cosineSimilarity(embedding, cat.embedding) + 1) / 2, // Normalize to 0-1
-    examples: cat.merchantExamples,
-  }));
+    categoryVector?: number[];
+  }[] = categoryEmbeddings.map((cat) => {
+    const rawSim = cosineSimilarity(embedding, cat.embedding);
+    return {
+      category: cat.category,
+      confidence: (rawSim + 1) / 2, // Normalize to 0-1
+      rawSimilarity: rawSim,
+      examples: cat.merchantExamples,
+      categoryVector: cat.embedding.slice(0, sampleDims),
+    };
+  });
 
   // Add user-defined categories (no embedding yet, so 0 confidence)
   for (const cat of userDefinedCategories) {
@@ -190,6 +250,31 @@ async function classify(merchant: string, amount: number) {
   similarities.sort((a, b) => b.confidence - a.confidence);
 
   const best = similarities[0];
+  const top3 = similarities.slice(0, 3);
+
+  // Build reasoning
+  const bestExamples = best.examples?.slice(0, 3).join(", ") || "none";
+  const reasoning = `"${merchant}" is semantically similar to ${best.category} merchants (e.g., ${bestExamples}). Cosine similarity: ${best.rawSimilarity?.toFixed(4)}`;
+
+  console.log(`[VECTOR CLASSIFY] Cosine similarities to category embeddings:`);
+  top3.forEach((cat, i) => {
+    const exampleList = cat.examples?.slice(0, 2).join(", ") || "N/A";
+    const catVectorStr = cat.categoryVector
+      ? cat.categoryVector.map((v) => v.toFixed(4)).join(", ")
+      : "N/A";
+    console.log(
+      `[VECTOR CLASSIFY]   ${i + 1}. ${cat.category}: ${(cat.confidence * 100).toFixed(2)}% (cosine: ${cat.rawSimilarity?.toFixed(4)})`,
+    );
+    console.log(
+      `[VECTOR CLASSIFY]      Category vector (first ${sampleDims} dims): [${catVectorStr}...]`,
+    );
+    console.log(`[VECTOR CLASSIFY]      Examples: ${exampleList}`);
+  });
+  console.log(
+    `[VECTOR CLASSIFY] Decision: "${best.category}" (${(best.confidence * 100).toFixed(1)}%)`,
+  );
+  console.log(`[VECTOR CLASSIFY] Reasoning: ${reasoning}`);
+  console.log("=".repeat(60));
 
   return {
     merchant,
@@ -198,6 +283,7 @@ async function classify(merchant: string, amount: number) {
     confidence: best.confidence,
     matchType: "vector",
     embeddingSource: cacheHit ? "cache" : "openai",
+    reasoning,
     topMatches: similarities.slice(0, 5),
     alternatives: similarities,
   };
