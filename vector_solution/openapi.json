@@ -1,0 +1,117 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Budget Classifier - Vector Embeddings",
+    "description": "ML-based budget categorization using OpenAI embeddings",
+    "version": "1.0.0"
+  },
+  "host": "z3hkh83v-3002.use.devtunnels.ms",
+  "basePath": "/",
+  "schemes": ["https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "paths": {
+    "/classify": {
+      "post": {
+        "summary": "Classify a transaction",
+        "operationId": "ClassifyTransaction",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "merchant": { "type": "string" },
+                "amount": { "type": "number" }
+              },
+              "required": ["merchant", "amount"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Classification result",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "merchant": { "type": "string" },
+                "amount": { "type": "number" },
+                "prediction": { "type": "string" },
+                "confidence": { "type": "number" },
+                "matchType": { "type": "string" },
+                "embeddingSource": { "type": "string" },
+                "alternatives": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "category": { "type": "string" },
+                      "confidence": { "type": "number" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/categories": {
+      "get": {
+        "summary": "Get all categories",
+        "operationId": "GetCategories",
+        "responses": {
+          "200": {
+            "description": "List of categories",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "categories": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/feedback": {
+      "post": {
+        "summary": "Submit correction feedback",
+        "operationId": "SubmitFeedback",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "merchant": { "type": "string" },
+                "amount": { "type": "number" },
+                "category": { "type": "string" }
+              },
+              "required": ["merchant", "amount", "category"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Feedback result",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": { "type": "boolean" },
+                "totalCorrections": { "type": "integer" },
+                "newCategory": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

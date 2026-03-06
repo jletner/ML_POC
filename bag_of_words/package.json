@@ -16,5 +16,8 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@tensorflow/tfjs": "^4.22.0",
     "tsx": "^4.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.4"
   }
 }

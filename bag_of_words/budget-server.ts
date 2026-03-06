@@ -1,7 +1,12 @@
 ﻿import * as tf from "@tensorflow/tfjs";
-import * as fs from "fs";
-import * as http from "http";
-import { execSync } from "child_process";
+import * as fs from "node:fs";
+import * as http from "node:http";
+import * as path from "node:path";
+import { execSync } from "node:child_process";
+
+const SCRIPT_DIR = import.meta.dirname;
+const MODEL_DIR = path.join(SCRIPT_DIR, "budget-model");
+const DATA_DIR = path.join(SCRIPT_DIR, "data");
 
 let model: tf.LayersModel | null = null;
 let vocab: Map<string, number> = new Map();
@@ -15,14 +20,14 @@ function getAllCategories(): string[] {
 
 async function loadModel() {
   const modelJSON = JSON.parse(
-    fs.readFileSync("./budget-model/model.json", "utf-8"),
+    fs.readFileSync(path.join(MODEL_DIR, "model.json"), "utf-8"),
   );
-  const weightsBuffer = fs.readFileSync("./budget-model/weights.bin");
+  const weightsBuffer = fs.readFileSync(path.join(MODEL_DIR, "weights.bin"));
   const vocabObj = JSON.parse(
-    fs.readFileSync("./budget-model/vocab.json", "utf-8"),
+    fs.readFileSync(path.join(MODEL_DIR, "vocab.json"), "utf-8"),
   );
   categories = JSON.parse(
-    fs.readFileSync("./budget-model/categories.json", "utf-8"),
+    fs.readFileSync(path.join(MODEL_DIR, "categories.json"), "utf-8"),
   );
 
   vocab = new Map(Object.entries(vocabObj).map(([k, v]) => [k, v as number]));
@@ -55,7 +60,7 @@ function normalizeAmount(amount: number): number {
 function loadMerchantLookup(): Map<string, string> {
   try {
     const corrections = JSON.parse(
-      fs.readFileSync("./data/user-corrections.json", "utf-8"),
+      fs.readFileSync(path.join(DATA_DIR, "user-corrections.json"), "utf-8"),
     );
     const lookup = new Map<string, string>();
     // Use most recent correction for each merchant
@@ -107,8 +112,6 @@ async function classify(merchant: string, amount: number) {
   const vec = [...merchantToVector(merchant), normalizeAmount(amount)];
   const pred = model.predict(tf.tensor2d([vec])) as tf.Tensor;
   const probs = await pred.data();
-  const maxIdx = Array.from(probs).indexOf(Math.max(...probs));
-  const confidence = probs[maxIdx];
 
   // Get all predictions sorted by confidence
   const allRanked = categories
@@ -120,18 +123,21 @@ async function classify(merchant: string, amount: number) {
     .filter((cat) => !categories.includes(cat))
     .map((cat) => ({ category: cat, confidence: 0 }));
 
+  // Use the top ranked item for consistency (same source for confidence)
+  const best = allRanked[0];
+
   return {
     merchant,
     amount,
-    prediction: categories[maxIdx],
-    confidence,
+    prediction: best.category,
+    confidence: best.confidence,
     alternatives: [...allRanked, ...userDefined],
   };
 }
 
 function saveFeedback(merchant: string, amount: number, category: string) {
   const corrections = JSON.parse(
-    fs.readFileSync("./data/user-corrections.json", "utf-8"),
+    fs.readFileSync(path.join(DATA_DIR, "user-corrections.json"), "utf-8"),
   );
   const isNewCategory = !categories.includes(category);
   corrections.push({
@@ -141,7 +147,7 @@ function saveFeedback(merchant: string, amount: number, category: string) {
     timestamp: new Date().toISOString(),
   });
   fs.writeFileSync(
-    "./data/user-corrections.json",
+    path.join(DATA_DIR, "user-corrections.json"),
     JSON.stringify(corrections, null, 2),
   );
   // Update lookup immediately so exact matches work before retrain
@@ -362,6 +368,18 @@ const HTML_PAGE = `<!DOCTYPE html>
 </html>`;
 
 const server = http.createServer(async (req, res) => {
+  // CORS headers for cross-origin requests
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  // Handle preflight requests
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+
   try {
     if (
       req.method === "GET" &&

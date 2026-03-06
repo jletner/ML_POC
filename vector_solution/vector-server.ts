@@ -1,3 +1,7 @@
+import * as path from "node:path";
+import * as dotenv from "dotenv";
+dotenv.config({ path: path.join(import.meta.dirname, ".env") });
+
 import OpenAI from "openai";
 import * as fs from "node:fs";
 import * as http from "node:http";
@@ -18,16 +22,27 @@ let categoryEmbeddings: CategoryEmbedding[] = [];
 let merchantLookup: Record<string, string> = {};
 let userDefinedCategories: Set<string> = new Set(); // Track categories added via UI
 let merchantEmbeddingCache: Record<string, number[]> = {}; // Cache to avoid repeated API calls
-const CACHE_FILE = "./embeddings/merchant-embedding-cache.json";
+const SCRIPT_DIR = import.meta.dirname;
+const CACHE_FILE = path.join(
+  SCRIPT_DIR,
+  "embeddings/merchant-embedding-cache.json",
+);
+const CATEGORY_EMBEDDINGS_FILE = path.join(
+  SCRIPT_DIR,
+  "embeddings/category-embeddings.json",
+);
+const MERCHANT_LOOKUP_FILE = path.join(
+  SCRIPT_DIR,
+  "embeddings/merchant-lookup.json",
+);
+const CORRECTIONS_FILE = path.join(SCRIPT_DIR, "data/user-corrections.json");
 
 // Load embeddings
 function loadEmbeddings() {
   categoryEmbeddings = JSON.parse(
-    fs.readFileSync("./embeddings/category-embeddings.json", "utf-8"),
+    fs.readFileSync(CATEGORY_EMBEDDINGS_FILE, "utf-8"),
   );
-  merchantLookup = JSON.parse(
-    fs.readFileSync("./embeddings/merchant-lookup.json", "utf-8"),
-  );
+  merchantLookup = JSON.parse(fs.readFileSync(MERCHANT_LOOKUP_FILE, "utf-8"));
 
   // Load merchant embedding cache
   try {
@@ -41,9 +56,7 @@ function loadEmbeddings() {
 
   // Load user-defined categories from corrections
   try {
-    const corrections = JSON.parse(
-      fs.readFileSync("./data/user-corrections.json", "utf-8"),
-    );
+    const corrections = JSON.parse(fs.readFileSync(CORRECTIONS_FILE, "utf-8"));
     const embeddedCats = new Set(categoryEmbeddings.map((c) => c.category));
     for (const c of corrections) {
       if (!embeddedCats.has(c.category)) {
@@ -193,7 +206,7 @@ async function classify(merchant: string, amount: number) {
 // Handle user correction - save and reload
 function handleCorrection(merchant: string, category: string) {
   // Add to user corrections file
-  const correctionsPath = "./data/user-corrections.json";
+  const correctionsPath = CORRECTIONS_FILE;
   let corrections: { merchant: string; amount: number; category: string }[] =
     [];
 
@@ -225,7 +238,7 @@ function handleCorrection(merchant: string, category: string) {
 }
 
 function saveFeedback(merchant: string, amount: number, category: string) {
-  const correctionsPath = "./data/user-corrections.json";
+  const correctionsPath = CORRECTIONS_FILE;
   let corrections: {
     merchant: string;
     amount: number;
@@ -590,10 +603,10 @@ const server = http.createServer(
         res.writeHead(200);
         res.end(
           JSON.stringify({
-            categories: categoryEmbeddings.map((c) => ({
-              name: c.category,
-              examples: c.merchantExamples,
-            })),
+            categories: [
+              ...categoryEmbeddings.map((c) => c.category),
+              ...Array.from(userDefinedCategories),
+            ],
           }),
         );
         return;
