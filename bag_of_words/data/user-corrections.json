@@ -16,5 +16,23 @@
     "amount": 10,
     "category": "Coffee & Drinks",
     "timestamp": "2026-03-06T00:34:27.898Z"
+  },
+  {
+    "merchant": "Bob's Car Sales",
+    "amount": 100,
+    "category": "Automotive",
+    "timestamp": "2026-03-06T01:33:00.397Z"
+  },
+  {
+    "merchant": "Joe's Pet Store",
+    "amount": 100,
+    "category": "Pets",
+    "timestamp": "2026-03-06T01:51:33.668Z"
+  },
+  {
+    "merchant": "Petsmart",
+    "amount": 100,
+    "category": "Pets",
+    "timestamp": "2026-03-06T01:52:35.737Z"
   }
 ]

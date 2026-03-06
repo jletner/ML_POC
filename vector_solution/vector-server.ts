@@ -175,6 +175,12 @@ async function classify(merchant: string, amount: number) {
     );
     console.log("=".repeat(60));
 
+    // Override the exact match category to show 100% confidence in alternatives
+    const allAlternatives = similarities.map((alt) =>
+      alt.category === exactMatch ? { ...alt, confidence: 1.0 } : alt,
+    );
+    allAlternatives.sort((a, b) => b.confidence - a.confidence);
+
     return {
       merchant,
       amount,
@@ -183,7 +189,7 @@ async function classify(merchant: string, amount: number) {
       matchType: "exact",
       embeddingSource: cacheHit ? "cache" : "openai",
       reasoning: "Exact match from user correction.",
-      alternatives: similarities,
+      alternatives: allAlternatives,
     };
   }
 

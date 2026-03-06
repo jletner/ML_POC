@@ -3,6 +3,14 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
+import * as dotenv from "dotenv";
+import OpenAI from "openai";
+
+dotenv.config({ path: path.join(import.meta.dirname, ".env") });
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 const SCRIPT_DIR = import.meta.dirname;
 const MODEL_DIR = path.join(SCRIPT_DIR, "budget-model");
@@ -131,6 +139,12 @@ async function classify(merchant: string, amount: number) {
       .filter((cat) => !categories.includes(cat))
       .map((cat) => ({ category: cat, confidence: 0 }));
 
+    // Override the exact match category to show 100% confidence in alternatives
+    const allAlternatives = [...allRanked, ...userDefined].map((alt) =>
+      alt.category === exactMatch ? { ...alt, confidence: 1.0 } : alt,
+    );
+    allAlternatives.sort((a, b) => b.confidence - a.confidence);
+
     return {
       merchant,
       amount,
@@ -138,7 +152,7 @@ async function classify(merchant: string, amount: number) {
       confidence: 1.0,
       matchType: "exact",
       reasoning: `Exact match from user correction. Known words: [${knownWords.join(", ")}]`,
-      alternatives: [...allRanked, ...userDefined],
+      alternatives: allAlternatives,
     };
   }
 
@@ -230,9 +244,109 @@ function parseBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
-async function retrainModel(): Promise<{ success: boolean; output: string }> {
+// Generate synthetic merchant examples for a new category using OpenAI
+async function generateSyntheticMerchants(
+  category: string,
+  count: number = 10,
+): Promise<{ merchant: string; amount: number; category: string }[]> {
+  console.log(
+    `Generating ${count} synthetic merchants for new category: ${category}`,
+  );
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You generate realistic merchant names for budget categorization training data. Return ONLY a JSON array of objects with 'merchant' (string) and 'amount' (number) fields. No markdown, no explanation.",
+        },
+        {
+          role: "user",
+          content: `Generate ${count} realistic merchant names for the category "${category}". Include variety in naming styles (e.g., "Joe's Auto Shop", "AutoZone", "Quick Lube Center"). Amounts should be realistic for this category. Return as JSON array.`,
+        },
+      ],
+      temperature: 0.8,
+    });
+
+    const content = response.choices[0].message.content || "[]";
+    // Parse JSON, handling potential markdown code blocks
+    const jsonStr = content.replace(/```json\n?|```\n?/g, "").trim();
+    const merchants = JSON.parse(jsonStr) as {
+      merchant: string;
+      amount: number;
+    }[];
+
+    console.log(
+      `Generated ${merchants.length} synthetic merchants for ${category}`,
+    );
+    return merchants.map((m) => ({ ...m, category }));
+  } catch (err: any) {
+    console.error(`Failed to generate synthetic merchants: ${err.message}`);
+    return [];
+  }
+}
+
+// Check for new categories and generate synthetic data before retraining
+async function generateSyntheticsForNewCategories(): Promise<string[]> {
+  const corrections = JSON.parse(
+    fs.readFileSync(path.join(DATA_DIR, "user-corrections.json"), "utf-8"),
+  );
+  const syntheticData = JSON.parse(
+    fs.readFileSync(
+      path.join(DATA_DIR, "synthetic-transactions.json"),
+      "utf-8",
+    ),
+  );
+
+  // Find categories in corrections that don't exist in synthetic data
+  const syntheticCategories = new Set(
+    syntheticData.map((t: any) => t.category),
+  );
+  const correctionCategories = new Set(corrections.map((c: any) => c.category));
+  const newCategories = [...correctionCategories].filter(
+    (c) => !syntheticCategories.has(c),
+  );
+
+  if (newCategories.length === 0) {
+    return [];
+  }
+
+  console.log(
+    `Found ${newCategories.length} new categories needing synthetic data: ${newCategories.join(", ")}`,
+  );
+
+  // Generate synthetic data for each new category
+  for (const category of newCategories) {
+    const synthetics = await generateSyntheticMerchants(category as string, 10);
+    if (synthetics.length > 0) {
+      syntheticData.push(...synthetics);
+    }
+  }
+
+  // Save updated synthetic data
+  fs.writeFileSync(
+    path.join(DATA_DIR, "synthetic-transactions.json"),
+    JSON.stringify(syntheticData, null, 2),
+  );
+
+  return newCategories as string[];
+}
+
+async function retrainModel(): Promise<{
+  success: boolean;
+  output: string;
+  newCategories?: string[];
+}> {
   console.log("Starting model retraining...");
   try {
+    // Generate synthetic data for any new categories first
+    const newCategories = await generateSyntheticsForNewCategories();
+    if (newCategories.length > 0) {
+      console.log(`Generated synthetic data for: ${newCategories.join(", ")}`);
+    }
+
     const output = execSync("npx tsx train-budget.ts", {
       encoding: "utf-8",
       cwd: process.cwd(),
@@ -242,7 +356,11 @@ async function retrainModel(): Promise<{ success: boolean; output: string }> {
     await loadModel();
     userDefinedCategories.clear(); // Clear since they're now in the model
     merchantLookup = loadMerchantLookup();
-    return { success: true, output };
+    return {
+      success: true,
+      output,
+      newCategories: newCategories.length > 0 ? newCategories : undefined,
+    };
   } catch (err: any) {
     console.error("Retraining failed:", err.message);
     return { success: false, output: err.message };
