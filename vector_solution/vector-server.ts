@@ -181,6 +181,34 @@ async function classify(merchant: string, amount: number) {
     );
     allAlternatives.sort((a, b) => b.confidence - a.confidence);
 
+    // Build detailed reasoning for exact match
+    const exactReasoning = {
+      summary: `Exact match from user correction database.`,
+      matchType: "exact",
+      model: "OpenAI text-embedding-3-small",
+      details: {
+        source: "user-corrections.json (merchant-lookup.json)",
+        merchantLookup: merchant.toLowerCase(),
+        correctedTo: exactMatch,
+        bypassedVectorSearch: false, // Still computed for comparison
+      },
+      embeddingDetails: {
+        source: cacheHit ? "cache (instant)" : "OpenAI API (network call)",
+        dimensions: embedding.length,
+        note: "Embedding still computed to show vector-based alternatives",
+      },
+      vectorComparison: {
+        note: "Vector similarity was computed for comparison purposes",
+        vectorWouldHavePredicted: similarities[0].category,
+        vectorConfidence: (similarities[0].confidence * 100).toFixed(1) + "%",
+        matchesCorrection: similarities[0].category === exactMatch,
+      },
+      inference: {
+        totalCategories: categoryEmbeddings.length,
+        estimatedLatency: cacheHit ? "~1ms (cached)" : "~200-500ms (API call)",
+      },
+    };
+
     return {
       merchant,
       amount,
@@ -188,7 +216,7 @@ async function classify(merchant: string, amount: number) {
       confidence: 1.0,
       matchType: "exact",
       embeddingSource: cacheHit ? "cache" : "openai",
-      reasoning: "Exact match from user correction.",
+      reasoning: exactReasoning,
       alternatives: allAlternatives,
     };
   }
@@ -258,9 +286,63 @@ async function classify(merchant: string, amount: number) {
   const best = similarities[0];
   const top3 = similarities.slice(0, 3);
 
-  // Build reasoning
-  const bestExamples = best.examples?.slice(0, 3).join(", ") || "none";
-  const reasoning = `"${merchant}" is semantically similar to ${best.category} merchants (e.g., ${bestExamples}). Cosine similarity: ${best.rawSimilarity?.toFixed(4)}`;
+  // Build detailed reasoning
+  const bestExamples = best.examples?.slice(0, 3) || [];
+  const secondBest = top3.length > 1 ? top3[1] : null;
+
+  const reasoning = {
+    summary: `"${merchant}" is semantically similar to ${best.category} merchants (e.g., ${bestExamples.join(", ") || "none"}).`,
+    matchType: "vector",
+    model: "OpenAI text-embedding-3-small",
+    embeddingDetails: {
+      source: cacheHit ? "cache (instant)" : "OpenAI API (network call)",
+      dimensions: embedding.length,
+      vectorSample: {
+        first3: embedding.slice(0, 3).map((v) => v.toFixed(4)),
+        last3: embedding.slice(-3).map((v) => v.toFixed(4)),
+      },
+      vectorStats: {
+        min: Math.min(...embedding).toFixed(4),
+        max: Math.max(...embedding).toFixed(4),
+        mean: (embedding.reduce((a, b) => a + b, 0) / embedding.length).toFixed(
+          4,
+        ),
+      },
+    },
+    similarityAnalysis: {
+      method: "Cosine Similarity",
+      rawCosineSimilarity: best.rawSimilarity?.toFixed(4),
+      normalizedConfidence: (best.confidence * 100).toFixed(2) + "%",
+      normalizationFormula: "(cosine + 1) / 2 to map [-1,1] → [0,1]",
+    },
+    categoryMatch: {
+      matchedCategory: best.category,
+      similarMerchants: bestExamples,
+      categoryHasSamples: (best.examples?.length || 0) > 0,
+    },
+    confidenceBreakdown: {
+      top3: top3.map((cat, i) => ({
+        rank: i + 1,
+        category: cat.category,
+        confidence: (cat.confidence * 100).toFixed(2) + "%",
+        cosineSimilarity: cat.rawSimilarity?.toFixed(4),
+        exampleMerchants: cat.examples?.slice(0, 2) || [],
+      })),
+      marginOverSecond: secondBest
+        ? ((best.confidence - secondBest.confidence) * 100).toFixed(2) + "%"
+        : "N/A",
+      interpretation:
+        best.confidence > 0.85
+          ? "High confidence - strong semantic match"
+          : best.confidence > 0.7
+            ? "Moderate confidence - reasonable semantic match"
+            : "Low confidence - weak semantic match, may need review",
+    },
+    inference: {
+      totalCategories: categoryEmbeddings.length,
+      estimatedLatency: cacheHit ? "~1ms (cached)" : "~200-500ms (API call)",
+    },
+  };
 
   console.log(`[VECTOR CLASSIFY] Cosine similarities to category embeddings:`);
   top3.forEach((cat, i) => {

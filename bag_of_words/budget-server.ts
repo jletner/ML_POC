@@ -40,6 +40,51 @@ async function loadModel() {
 
   vocab = new Map(Object.entries(vocabObj).map(([k, v]) => [k, v as number]));
 
+  // Log weights.bin details
+  console.log("\n" + "=".repeat(60));
+  console.log("[WEIGHTS.BIN] Loading neural network weights...");
+  console.log(
+    `[WEIGHTS.BIN] File size: ${weightsBuffer.length.toLocaleString()} bytes (${(weightsBuffer.length / 1024).toFixed(2)} KB)`,
+  );
+
+  const weights = new Float32Array(
+    weightsBuffer.buffer,
+    weightsBuffer.byteOffset,
+    weightsBuffer.length / 4,
+  );
+  console.log(
+    `[WEIGHTS.BIN] Total parameters: ${weights.length.toLocaleString()}`,
+  );
+
+  // Parse weight manifest for layer details
+  const weightManifest = modelJSON.weightsManifest[0].weights;
+  console.log(`[WEIGHTS.BIN] Weight tensors:`);
+  let offset = 0;
+  for (const w of weightManifest) {
+    const size = w.shape.reduce((a: number, b: number) => a * b, 1);
+    const layerWeights = weights.slice(offset, offset + size);
+    const min = Math.min(...layerWeights).toFixed(4);
+    const max = Math.max(...layerWeights).toFixed(4);
+    const mean = (
+      layerWeights.reduce((a, b) => a + b, 0) / layerWeights.length
+    ).toFixed(4);
+    console.log(
+      `[WEIGHTS.BIN]   ${w.name}: shape=${JSON.stringify(w.shape)}, params=${size.toLocaleString()}, range=[${min}, ${max}], mean=${mean}`,
+    );
+    offset += size;
+  }
+
+  // Overall stats
+  const overallMin = Math.min(...weights).toFixed(4);
+  const overallMax = Math.max(...weights).toFixed(4);
+  const overallMean = (
+    weights.reduce((a, b) => a + b, 0) / weights.length
+  ).toFixed(4);
+  console.log(
+    `[WEIGHTS.BIN] Overall stats: min=${overallMin}, max=${overallMax}, mean=${overallMean}`,
+  );
+  console.log("=".repeat(60) + "\n");
+
   model = await tf.loadLayersModel(
     tf.io.fromMemory(
       modelJSON.modelTopology,
@@ -145,13 +190,39 @@ async function classify(merchant: string, amount: number) {
     );
     allAlternatives.sort((a, b) => b.confidence - a.confidence);
 
+    // Build detailed reasoning for exact match
+    const exactReasoning = {
+      summary: `Exact match from user correction database.`,
+      matchType: "exact",
+      model: "Bag of Words (TensorFlow.js)",
+      details: {
+        source: "user-corrections.json",
+        merchantLookup: merchant.toLowerCase(),
+        correctedTo: exactMatch,
+        bypassedML: true,
+      },
+      vocabularyAnalysis: {
+        inputWords: words,
+        knownWords: knownWords,
+        unknownWords: unknownWords,
+        vocabularySize: vocab.size,
+        coveragePercent:
+          ((knownWords.length / words.length) * 100).toFixed(1) + "%",
+      },
+      mlComparison: {
+        note: "ML prediction was bypassed due to exact match",
+        mlWouldHavePredicted: allRanked[0].category,
+        mlConfidence: (allRanked[0].confidence * 100).toFixed(1) + "%",
+      },
+    };
+
     return {
       merchant,
       amount,
       prediction: exactMatch,
       confidence: 1.0,
       matchType: "exact",
-      reasoning: `Exact match from user correction. Known words: [${knownWords.join(", ")}]`,
+      reasoning: exactReasoning,
       alternatives: allAlternatives,
     };
   }
@@ -174,13 +245,59 @@ async function classify(merchant: string, amount: number) {
   const best = allRanked[0];
   const top3 = allRanked.slice(0, 3);
 
-  // Build reasoning explanation
-  let reasoning = "";
-  if (knownWords.length === 0) {
-    reasoning = `No vocabulary matches found. Model used amount ($${amount}) and general patterns.`;
-  } else {
-    reasoning = `Word patterns [${knownWords.join(", ")}] strongly associated with "${best.category}" in training data.`;
-  }
+  // Build detailed reasoning explanation
+  const reasoning = {
+    summary:
+      knownWords.length === 0
+        ? `No vocabulary matches found. Model relied on amount ($${amount}) and general patterns.`
+        : `Word patterns [${knownWords.join(", ")}] strongly associated with "${best.category}" in training data.`,
+    matchType: "model",
+    model: "Bag of Words (TensorFlow.js)",
+    architecture: {
+      type: "Sequential Neural Network",
+      layers:
+        "Input(" +
+        vocab.size +
+        "+1) → Dense(64, ReLU) → Dropout(0.3) → Dense(32, ReLU) → Softmax(" +
+        categories.length +
+        ")",
+      totalCategories: categories.length,
+    },
+    vocabularyAnalysis: {
+      inputWords: words,
+      knownWords: knownWords,
+      unknownWords: unknownWords,
+      vocabularySize: vocab.size,
+      coveragePercent:
+        ((knownWords.length / words.length) * 100).toFixed(1) + "%",
+      note:
+        unknownWords.length > 0
+          ? `Unknown words mapped to <UNK> token (index 0)`
+          : "All words recognized",
+    },
+    amountAnalysis: {
+      rawAmount: amount,
+      normalizedValue: normalizeAmount(amount).toFixed(4),
+      normalizationMethod: "log10(amount + 1) / 4",
+    },
+    confidenceBreakdown: {
+      top3: top3.map((cat, i) => ({
+        rank: i + 1,
+        category: cat.category,
+        confidence: (cat.confidence * 100).toFixed(2) + "%",
+        probability: cat.confidence.toFixed(4),
+      })),
+      marginOverSecond:
+        top3.length > 1
+          ? ((top3[0].confidence - top3[1].confidence) * 100).toFixed(2) + "%"
+          : "N/A",
+    },
+    inference: {
+      vectorSize: vocab.size + 1,
+      activatedPositions: knownWords.length + (unknownWords.length > 0 ? 1 : 0),
+      estimatedLatency: "~1ms (local inference)",
+    },
+  };
 
   console.log(`[BOW CLASSIFY] Neural network output probabilities:`);
   top3.forEach((cat, i) => {
