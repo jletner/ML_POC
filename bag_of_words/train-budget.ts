@@ -11,6 +11,7 @@ const BASE_CATEGORIES = [
   "Shopping",
   "Bills & Utilities",
   "Other",
+  "Pets",
 ];
 
 // Build categories list from base + any new ones in data

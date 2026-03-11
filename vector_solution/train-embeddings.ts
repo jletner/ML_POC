@@ -23,6 +23,7 @@ const CATEGORY_DESCRIPTIONS: Record<string, string> = {
   "Bills & Utilities":
     "electric, water, gas bill, internet, phone, rent, mortgage, insurance, subscription",
   Other: "miscellaneous, general, uncategorized, various, other expenses",
+  Pets: "pet store, veterinary, grooming, pet food, dog, cat, PetSmart, Petco, animal care, pet supplies",
 };
 
 interface Transaction {
@@ -42,7 +43,7 @@ async function getEmbedding(text: string): Promise<number[]> {
   const response = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: text,
-    dimensions: 1536,
+    dimensions: 512,
   });
   return response.data[0].embedding;
 }
@@ -52,7 +53,7 @@ async function getEmbeddings(texts: string[]): Promise<number[][]> {
   const response = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: texts,
-    dimensions: 1536,
+    dimensions: 512,
   });
   return response.data.map((d: { embedding: number[] }) => d.embedding);
 }

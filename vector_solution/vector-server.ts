@@ -108,7 +108,7 @@ async function getEmbedding(
   const response = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: text,
-    dimensions: 1536,
+    dimensions: 512,
   });
   const embedding = response.data[0].embedding;
 
@@ -532,7 +532,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     <h3 style="margin-top: 0; color: #5a32a3;">How This Model Works</h3>
     <p style="margin: 0; color: #333; line-height: 1.6;">
       <strong>Semantic Embeddings:</strong> This classifier uses OpenAI's text-embedding-3-small model to convert 
-      merchant names into 1536-dimensional vectors that capture semantic meaning. Each category is represented 
+      merchant names into 512-dimensional vectors that capture semantic meaning. Each category is represented 
       by an average embedding of its training merchants.<br><br>
       <strong>Suggestions:</strong> Predictions are based on cosine similarity between the merchant embedding and 
       category embeddings. This approach understands meaning, not just words — so "JavaHut Espresso" matches 
