@@ -1,5 +1,4 @@
 [
-  "Pets",
   "Coffee & Drinks",
   "Food & Dining",
   "Groceries",
@@ -7,5 +6,6 @@
   "Entertainment",
   "Shopping",
   "Bills & Utilities",
-  "Other"
+  "Other",
+  "Pets"
 ]
